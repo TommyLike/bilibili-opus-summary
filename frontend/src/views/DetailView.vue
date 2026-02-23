@@ -30,7 +30,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { marked } from 'marked'
 import { getSummary } from '../api/index.js'
@@ -40,18 +40,29 @@ const summary = ref({})
 const loading = ref(true)
 const error = ref('')
 
-onMounted(async () => {
-  try {
-    const res = await getSummary(route.params.id)
-    summary.value = res.data
-  } catch (e) {
-    error.value = e.response?.status === 404
-      ? '摘要不存在'
-      : `加载失败：${e.message}`
-  } finally {
-    loading.value = false
-  }
-})
+// 用 watch + immediate 替代 onMounted：
+// 直接访问 URL 时 route.params.id 可能在初始导航完成后才就绪，
+// watch 会在参数可用时自动触发，避免 onMounted 时拿到 undefined 导致 404。
+watch(
+  () => route.params.id,
+  async (id) => {
+    if (!id) return
+    loading.value = true
+    error.value = ''
+    summary.value = {}
+    try {
+      const res = await getSummary(id)
+      summary.value = res.data
+    } catch (e) {
+      error.value = e.response?.status === 404
+        ? '摘要不存在'
+        : `加载失败：${e.message}`
+    } finally {
+      loading.value = false
+    }
+  },
+  { immediate: true }
+)
 
 const renderedMd = computed(() => {
   if (!summary.value.summary_md) return ''
