@@ -3,10 +3,6 @@
     <header class="header">
       <div class="header-inner">
         <router-link to="/" class="logo">Bilibili动态内容摘要助手</router-link>
-        <nav>
-          <router-link to="/" class="nav-link">历史摘要</router-link>
-          <router-link to="/new" class="nav-link nav-link--primary">+ 新建摘要</router-link>
-        </nav>
       </div>
     </header>
     <main class="main">
