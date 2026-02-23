@@ -35,6 +35,12 @@ export function logout() {
   return api.post('/api/auth/logout')
 }
 
+// ---- 服务端配置 ----
+
+export function getConfig() {
+  return api.get('/api/config')
+}
+
 // ---- 业务 API ----
 
 export function getSummaries() {
@@ -51,4 +57,8 @@ export function createTask(payload) {
 
 export function getTask(taskId) {
   return api.get(`/api/tasks/${taskId}`)
+}
+
+export function sendEmail(summaryId, email) {
+  return api.post(`/api/summaries/${summaryId}/send-email`, { email })
 }

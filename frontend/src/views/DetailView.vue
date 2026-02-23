@@ -25,6 +25,26 @@
 
       <!-- Markdown 渲染 -->
       <div class="markdown-body" v-html="renderedMd"></div>
+
+      <!-- 邮件发送卡片（SMTP 已配置时显示） -->
+      <div v-if="emailEnabled" class="email-card">
+        <div class="email-card-title">📧 发送摘要到邮箱</div>
+        <div class="email-card-row">
+          <input
+            v-model="emailInput"
+            type="email"
+            class="email-input"
+            placeholder="输入收件邮箱"
+            :disabled="emailSending"
+          />
+          <button class="btn-send" :disabled="emailSending || !emailInput" @click="handleSendEmail">
+            {{ emailSending ? '发送中...' : '发送' }}
+          </button>
+        </div>
+        <div v-if="emailResult" class="email-result" :class="emailResultOk ? 'email-result--ok' : 'email-result--err'">
+          {{ emailResult }}
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -33,7 +53,8 @@
 import { ref, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { marked } from 'marked'
-import { getSummary } from '../api/index.js'
+import { getSummary, sendEmail } from '../api/index.js'
+import { emailEnabled } from '../auth.js'
 
 const route = useRoute()
 const summary = ref({})
@@ -63,6 +84,29 @@ watch(
   },
   { immediate: true }
 )
+
+// ---- 邮件发送 ----
+const emailInput = ref('')
+const emailSending = ref(false)
+const emailResult = ref('')
+const emailResultOk = ref(false)
+
+async function handleSendEmail() {
+  if (!emailInput.value) return
+  emailSending.value = true
+  emailResult.value = ''
+  try {
+    const id = summary.value.id || route.params.id
+    await sendEmail(id, emailInput.value)
+    emailResult.value = `✅ 邮件已发送至 ${emailInput.value}`
+    emailResultOk.value = true
+  } catch (e) {
+    emailResult.value = `❌ 发送失败：${e.response?.data?.error || e.message}`
+    emailResultOk.value = false
+  } finally {
+    emailSending.value = false
+  }
+}
 
 const renderedMd = computed(() => {
   if (!summary.value.summary_md) return ''
@@ -159,4 +203,60 @@ const renderedMd = computed(() => {
 }
 .markdown-body :deep(pre code) { background: none; padding: 0; }
 .markdown-body :deep(strong) { font-weight: 700; }
+
+/* ---- 邮件发送卡片 ---- */
+.email-card {
+  border-top: 1px solid #eee;
+  padding: 20px 28px 24px;
+}
+
+.email-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #555;
+  margin-bottom: 12px;
+}
+
+.email-card-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.email-input {
+  flex: 1;
+  padding: 9px 12px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.email-input:focus { border-color: #00a1d6; }
+.email-input:disabled { background: #f9f9f9; }
+
+.btn-send {
+  background: #00a1d6;
+  color: #fff;
+  border: none;
+  padding: 9px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+.btn-send:hover:not(:disabled) { background: #0090c0; }
+.btn-send:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.email-result {
+  margin-top: 10px;
+  font-size: 13px;
+  padding: 8px 12px;
+  border-radius: 6px;
+}
+.email-result--ok { background: #e8f5e9; color: #2e7d32; }
+.email-result--err { background: #fff3f3; color: #c62828; }
 </style>

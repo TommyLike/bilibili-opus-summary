@@ -46,8 +46,8 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { isLoggedIn, checkingAuth } from './auth.js'
-import { checkAuth, login, logout } from './api/index.js'
+import { isLoggedIn, checkingAuth, emailEnabled } from './auth.js'
+import { checkAuth, login, logout, getConfig } from './api/index.js'
 
 const password = ref('')
 const loginError = ref('')
@@ -57,6 +57,11 @@ onMounted(async () => {
   try {
     await checkAuth()
     isLoggedIn.value = true
+    // 拉取服务端能力配置（SMTP 是否启用等）
+    try {
+      const cfg = await getConfig()
+      emailEnabled.value = cfg.data.email_enabled ?? false
+    } catch (_) { /* SMTP 未配置时静默降级 */ }
   } catch {
     isLoggedIn.value = false
   } finally {

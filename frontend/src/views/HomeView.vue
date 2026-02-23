@@ -54,6 +54,23 @@
           </div>
         </div>
 
+        <!-- 邮件通知（SMTP 已配置时显示） -->
+        <div v-if="emailEnabled" class="email-notify-row">
+          <label class="email-notify-check">
+            <input v-model="form.notifyEmailEnabled" type="checkbox" :disabled="submitting" />
+            生成后发送邮件通知
+          </label>
+          <input
+            v-if="form.notifyEmailEnabled"
+            v-model="form.notifyEmail"
+            type="email"
+            class="form-input email-notify-input"
+            placeholder="收件邮箱"
+            :disabled="submitting"
+            required
+          />
+        </div>
+
         <!-- 错误 / 状态 -->
         <div v-if="errorMsg" class="error-box">{{ errorMsg }}</div>
         <div v-if="taskStatus" class="status-box" :class="`status-box--${taskStatus}`">
@@ -61,7 +78,15 @@
             <span class="spinner"></span>
             {{ taskStatus === 'pending' ? '任务等待中...' : '正在处理，请稍候...' }}
           </template>
-          <template v-else-if="taskStatus === 'done'">✅ 处理完成，即将跳转...</template>
+          <template v-else-if="taskStatus === 'done'">
+            <span>✅ 处理完成，即将跳转...</span>
+            <span v-if="emailSent === true" class="email-badge email-badge--ok">
+              📧 邮件已发送至 {{ form.notifyEmail }}
+            </span>
+            <span v-else-if="emailSent === false" class="email-badge email-badge--err">
+              ⚠️ 邮件发送失败：{{ emailError }}
+            </span>
+          </template>
           <template v-else-if="taskStatus === 'error'">❌ 处理失败：{{ taskError }}</template>
         </div>
       </form>
@@ -115,6 +140,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getSummaries, createTask, getTask } from '../api/index.js'
+import { emailEnabled } from '../auth.js'
 
 const router = useRouter()
 
@@ -161,18 +187,24 @@ const form = ref({
   buvid3: '',
   gemini_api_key: '',
   force: false,
+  notifyEmailEnabled: false,
+  notifyEmail: '',
 })
 const showAdvanced = ref(false)
 const submitting = ref(false)
 const errorMsg = ref('')
 const taskStatus = ref('')
 const taskError = ref('')
+const emailSent = ref(null)   // null=未触发, true=已发送, false=发送失败
+const emailError = ref('')
 let pollTimer = null
 
 async function submit() {
   errorMsg.value = ''
   taskStatus.value = ''
   taskError.value = ''
+  emailSent.value = null
+  emailError.value = ''
   submitting.value = true
 
   try {
@@ -181,6 +213,9 @@ async function submit() {
     if (form.value.bili_jct) payload.bili_jct = form.value.bili_jct
     if (form.value.buvid3) payload.buvid3 = form.value.buvid3
     if (form.value.gemini_api_key) payload.gemini_api_key = form.value.gemini_api_key
+    if (form.value.notifyEmailEnabled && form.value.notifyEmail) {
+      payload.notify_email = form.value.notifyEmail
+    }
 
     const res = await createTask(payload)
     taskStatus.value = 'pending'
@@ -201,9 +236,13 @@ function startPolling(taskId) {
       if (status === 'done') {
         clearInterval(pollTimer)
         submitting.value = false
+        if (res.data.email_sent !== undefined) {
+          emailSent.value = res.data.email_sent
+          emailError.value = res.data.email_error || ''
+        }
         const summaryId = result?.summary_id
         if (summaryId) {
-          setTimeout(() => router.push(`/summary/${summaryId}`), 800)
+          setTimeout(() => router.push(`/summary/${summaryId}`), 1500)
         }
       } else if (status === 'error') {
         clearInterval(pollTimer)
@@ -421,4 +460,38 @@ function startPolling(taskId) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ---- 邮件通知 ---- */
+.email-notify-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.email-notify-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #555;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.email-notify-input {
+  flex: 1;
+  min-width: 180px;
+  max-width: 300px;
+}
+
+.email-badge {
+  font-size: 13px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+.email-badge--ok { background: #e8f5e9; color: #2e7d32; }
+.email-badge--err { background: #fff3e0; color: #e65100; }
 </style>
