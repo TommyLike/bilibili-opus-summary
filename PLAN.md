@@ -174,6 +174,84 @@ python-dotenv>=1.0
 
 ---
 
+## Web 服务部署
+
+项目已升级为 Vue 3 前端 + Flask 后端的 Web 服务，支持 Docker 部署。
+
+### 项目结构
+
+```
+bilibili_summary/
+├── app.py                     # Flask 后端
+├── bilibili_summary.py        # 核心逻辑（含 run_summary()）
+├── frontend/                  # Vue 3 + Vite 前端
+│   ├── index.html
+│   ├── package.json
+│   ├── vite.config.js
+│   └── src/
+│       ├── main.js
+│       ├── App.vue
+│       ├── router/index.js
+│       ├── api/index.js
+│       └── views/
+│           ├── HomeView.vue    # 历史列表
+│           ├── NewView.vue     # 新建表单
+│           └── DetailView.vue  # 摘要详情
+├── output/                    # 生成文件
+├── requirements.txt           # Python 依赖（含 flask、flask-cors）
+├── Dockerfile                 # 多阶段构建
+└── docker-compose.yml
+```
+
+### 环境变量
+
+| 变量名 | 说明 | 必填 |
+|--------|------|------|
+| `BILIBILI_SESSDATA` | B站登录 Cookie | 是 |
+| `BILIBILI_BILI_JCT` | B站 CSRF Token | 否 |
+| `BILIBILI_BUVID3` | 浏览器唯一标识 | 否 |
+| `GEMINI_API_KEY` | Google Gemini API Key | 是 |
+
+Web 界面也支持在表单中直接填写这些值，优先级高于 .env 配置。
+
+### 开发模式启动
+
+```bash
+# 1. 启动 Flask 后端（端口 5000）
+pip install -r requirements.txt
+python app.py
+
+# 2. 启动 Vue 前端（端口 5173，代理 /api 到 :5000）
+cd frontend
+npm install
+npm run dev
+```
+
+前端访问 http://localhost:5173，API 请求自动代理到后端。
+
+### Docker 构建与运行
+
+```bash
+# 一键构建并启动
+docker compose up --build
+
+# 访问 http://localhost:5000
+```
+
+Docker 模式下，前端构建产物由 Flask 直接服务，无需单独运行前端。
+
+### API 接口
+
+| Method | Path | 说明 |
+|--------|------|------|
+| GET | `/api/summaries` | 历史摘要列表 |
+| GET | `/api/summaries/<id>` | 摘要详情 |
+| POST | `/api/tasks` | 提交新任务 |
+| GET | `/api/tasks/<task_id>` | 查询任务状态 |
+| GET | `/output/<path>` | 静态文件（图片）|
+
+---
+
 ## 后续扩展方向
 
 - [ ] 支持批量处理多个 URL（从文件或命令行传入列表）
@@ -181,3 +259,4 @@ python-dotenv>=1.0
 - [ ] 支持视频动态（`DYNAMIC_TYPE_AV`）的标题/简介提取
 - [ ] 支持将摘要推送到通知渠道（微信、邮件、Telegram 等）
 - [ ] 增量记录已处理的 URL，避免重复处理
+- [ ] 任务持久化（SQLite），避免重启后丢失任务状态

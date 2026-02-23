@@ -48,13 +48,15 @@ HEADERS = {
 # 配置
 # ---------------------------------------------------------------------------
 
-def get_config():
-    """从环境变量读取配置"""
+def get_config(overrides: dict = None) -> dict:
+    """从环境变量读取配置，overrides 中的非空值优先于 env"""
+    overrides = overrides or {}
+
     config = {
-        "sessdata": os.getenv("BILIBILI_SESSDATA", ""),
-        "bili_jct": os.getenv("BILIBILI_BILI_JCT", ""),
-        "buvid3": os.getenv("BILIBILI_BUVID3", ""),
-        "gemini_api_key": os.getenv("GEMINI_API_KEY", ""),
+        "sessdata": overrides.get("sessdata") or os.getenv("BILIBILI_SESSDATA", ""),
+        "bili_jct": overrides.get("bili_jct") or os.getenv("BILIBILI_BILI_JCT", ""),
+        "buvid3": overrides.get("buvid3") or os.getenv("BILIBILI_BUVID3", ""),
+        "gemini_api_key": overrides.get("gemini_api_key") or os.getenv("GEMINI_API_KEY", ""),
     }
 
     missing = []
@@ -64,9 +66,7 @@ def get_config():
         missing.append("GEMINI_API_KEY")
 
     if missing:
-        print(f"错误：缺少必要的环境变量: {', '.join(missing)}")
-        print("请在 .env 文件中配置这些变量（参考 .env.example）")
-        sys.exit(1)
+        raise ValueError(f"缺少必要的配置项: {', '.join(missing)}，请在 .env 文件或请求参数中提供")
 
     return config
 
@@ -459,68 +459,59 @@ def build_markdown(post, summary, source_url):
 
 
 # ---------------------------------------------------------------------------
-# 主流程
+# 核心流程（供 CLI 和 Web API 共用）
 # ---------------------------------------------------------------------------
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Bilibili 动态内容抓取与图片识别摘要工具",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="示例:\n  python bilibili_summary.py https://www.bilibili.com/opus/1171504724323598370",
-    )
-    parser.add_argument("url", help="Bilibili 动态 URL（opus 格式或 t.bilibili.com 格式）")
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        help="忽略缓存，强制重新抓取并识别",
-    )
-    args = parser.parse_args()
+def run_summary(url: str, config: dict, force: bool = False) -> dict:
+    """
+    执行完整的摘要生成流程。
 
-    print("=" * 60)
-    print("Bilibili 动态摘要工具")
-    print("=" * 60)
+    Args:
+        url:    Bilibili 动态 URL
+        config: 由 get_config() 返回的配置字典
+        force:  True 时忽略缓存，强制重新抓取
 
-    # 提取 post ID
-    post_id = extract_post_id(args.url)
+    Returns:
+        {"summary_id": str, "output_dir": str}
+
+    Raises:
+        ValueError: 参数校验失败
+        RuntimeError: 抓取或处理失败
+    """
+    post_id = extract_post_id(url)
     if not post_id:
-        print(f"错误：无法从 URL 中提取动态 ID: {args.url}")
-        print("支持格式：https://www.bilibili.com/opus/<id>  或  https://t.bilibili.com/<id>")
-        sys.exit(1)
+        raise ValueError(f"无法从 URL 中提取动态 ID: {url}，支持格式：https://www.bilibili.com/opus/<id>")
 
-    # 读取配置 & 初始化 Gemini
-    config = get_config()
     gemini_client = genai.Client(api_key=config["gemini_api_key"])
     gemini_model = "gemini-2.5-flash"
 
     # -----------------------------------------------------------------------
     # 尝试从缓存加载，避免重复请求
     # -----------------------------------------------------------------------
-    # 先用临时目录名（基于 post_id）查找已有缓存
-    # 正式目录名在解析作者信息后确定，先按 post_id 扫描
     existing_cache = None
-    for d in Path("output").glob("*/raw.json") if Path("output").exists() else []:
-        try:
-            data = json.loads(d.read_text(encoding="utf-8"))
-            if str(post_id) in data.get("source_url", ""):
-                existing_cache = (d.parent, data)
-                break
-        except Exception:
-            continue
+    output_base = Path("output")
+    if output_base.exists():
+        for d in output_base.glob("*/raw.json"):
+            try:
+                data = json.loads(d.read_text(encoding="utf-8"))
+                if str(post_id) in data.get("source_url", ""):
+                    existing_cache = (d.parent, data)
+                    break
+            except Exception:
+                continue
 
-    if existing_cache and not args.force:
+    if existing_cache and not force:
         output_dir, raw_data = existing_cache
         print(f"\n发现缓存数据: {output_dir}")
-        print("（使用 --force 可强制重新抓取）")
         post = {k: raw_data[k] for k in ("author", "time", "text", "images", "image_descriptions", "combined_text")}
         post["cover_image_local"] = raw_data.get("cover_image_local", "")
-        source_url = raw_data.get("source_url", args.url)
+        source_url = raw_data.get("source_url", url)
     else:
         # 从 Bilibili 抓取
         cookies = build_cookies(config)
         item = fetch_post(post_id, cookies)
         if not item:
-            print("获取动态失败，请检查 URL 和 Cookie。")
-            sys.exit(1)
+            raise RuntimeError("获取动态失败，请检查 URL 和 Cookie。")
 
         post = parse_post(item)
         print(f"\n作者：{post['author']}")
@@ -548,7 +539,7 @@ def main():
         post["combined_text"] = "\n\n".join(parts)
 
         # 保存原始数据
-        source_url = args.url
+        source_url = url
         print("\n保存原始数据...")
         save_raw(post, source_url, output_dir)
 
@@ -561,16 +552,73 @@ def main():
     summary_path = output_dir / "summary.md"
     summary_path.write_text(md_content, encoding="utf-8")
 
-    print(f"\n{'=' * 60}")
-    print(f"完成！输出目录：{output_dir}")
-    print(f"  摘要文件：{summary_path}")
-    print(f"  原始数据：{output_dir / 'raw.json'}")
-    if (output_dir / "images").exists():
-        img_count = len(list((output_dir / "images").glob("*")))
-        print(f"  图片文件：{output_dir / 'images'} ({img_count} 张)")
+    summary_id = output_dir.name
+    print(f"\n完成！summary_id={summary_id}，输出目录：{output_dir}")
+
+    return {"summary_id": summary_id, "output_dir": str(output_dir)}
+
+
+# ---------------------------------------------------------------------------
+# 主流程（CLI 入口）
+# ---------------------------------------------------------------------------
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Bilibili 动态内容抓取与图片识别摘要工具",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="示例:\n  python bilibili_summary.py https://www.bilibili.com/opus/1171504724323598370",
+    )
+    parser.add_argument("url", help="Bilibili 动态 URL（opus 格式或 t.bilibili.com 格式）")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="忽略缓存，强制重新抓取并识别",
+    )
+    args = parser.parse_args()
+
     print("=" * 60)
-    print("\n## 摘要预览\n")
-    print(summary[:500] + ("..." if len(summary) > 500 else ""))
+    print("Bilibili 动态摘要工具")
+    print("=" * 60)
+
+    try:
+        config = get_config()
+    except ValueError as e:
+        print(f"错误：{e}")
+        print("请在 .env 文件中配置这些变量（参考 .env.example）")
+        sys.exit(1)
+
+    try:
+        result = run_summary(args.url, config, force=args.force)
+        output_dir = Path(result["output_dir"])
+        print(f"\n{'=' * 60}")
+        print(f"完成！输出目录：{output_dir}")
+        print(f"  摘要文件：{output_dir / 'summary.md'}")
+        print(f"  原始数据：{output_dir / 'raw.json'}")
+        if (output_dir / "images").exists():
+            img_count = len(list((output_dir / "images").glob("*")))
+            print(f"  图片文件：{output_dir / 'images'} ({img_count} 张)")
+        print("=" * 60)
+        summary_path = output_dir / "summary.md"
+        if summary_path.exists():
+            summary = summary_path.read_text(encoding="utf-8")
+            # 提取摘要部分预览
+            lines = summary.split("\n")
+            preview_lines = []
+            in_summary = False
+            for line in lines:
+                if line.startswith("## 摘要"):
+                    in_summary = True
+                    continue
+                if in_summary and line.startswith("## "):
+                    break
+                if in_summary:
+                    preview_lines.append(line)
+            preview = "\n".join(preview_lines).strip()
+            print("\n## 摘要预览\n")
+            print(preview[:500] + ("..." if len(preview) > 500 else ""))
+    except (ValueError, RuntimeError) as e:
+        print(f"错误：{e}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
