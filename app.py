@@ -378,6 +378,14 @@ def get_summary(summary_id: str):
     if raw is None:
         abort(404, f"摘要不存在: {summary_id}")
 
+    # 扫描 images/ 子目录，返回已下载的原始图片文件名列表
+    images_dir = OUTPUT_DIR / summary_id / "images"
+    _img_exts = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+    images = sorted(
+        p.name for p in images_dir.iterdir()
+        if p.is_file() and p.suffix.lower() in _img_exts
+    ) if images_dir.exists() else []
+
     return jsonify({
         "id": summary_id,
         "author": raw.get("author", ""),
@@ -386,6 +394,7 @@ def get_summary(summary_id: str):
         "source_url": raw.get("source_url", ""),
         "cover_image_local": raw.get("cover_image_local", ""),
         "summary_md": _load_summary_md(summary_id) or "",
+        "images": images,
     })
 
 

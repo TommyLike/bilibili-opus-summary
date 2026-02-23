@@ -1,8 +1,9 @@
 <template>
   <div>
     <!-- ===== 新建摘要表单 ===== -->
-    <div class="section-title">新建摘要</div>
+    <div class="section-label">新建摘要</div>
     <div class="new-card">
+      <div class="new-card-accent"></div>
       <form @submit.prevent="submit" class="form">
         <div class="form-row">
           <input
@@ -20,7 +21,8 @@
 
         <!-- 高级选项 -->
         <div class="advanced-toggle" @click="showAdvanced = !showAdvanced">
-          {{ showAdvanced ? '▾' : '▸' }} 高级选项（Cookie / API Key）
+          <span class="toggle-arrow">{{ showAdvanced ? '▾' : '▸' }}</span>
+          高级选项（Cookie / API Key）
           <span class="hint">若后端 .env 已配置则无需填写</span>
         </div>
         <div v-if="showAdvanced" class="advanced-fields">
@@ -47,14 +49,14 @@
             </div>
           </div>
           <div class="form-group form-group--inline">
-            <input v-model="form.force" type="checkbox" id="force" :disabled="submitting" />
-            <label for="force" class="form-label" style="margin-bottom:0;cursor:pointer">
+            <input v-model="form.force" type="checkbox" id="force" :disabled="submitting" class="form-check" />
+            <label for="force" class="form-label form-label--check">
               强制重新抓取（忽略缓存）
             </label>
           </div>
         </div>
 
-        <!-- 邮件通知（SMTP 已配置时显示） -->
+        <!-- 邮件通知 -->
         <div v-if="emailEnabled" class="email-notify-row">
           <label class="email-notify-check">
             <input v-model="form.notifyEmailEnabled" type="checkbox" :disabled="submitting" />
@@ -79,31 +81,33 @@
             {{ taskStatus === 'pending' ? '任务等待中...' : '正在处理，请稍候...' }}
           </template>
           <template v-else-if="taskStatus === 'done'">
-            <span>✅ 处理完成，即将跳转...</span>
+            <span>✓ 处理完成，即将跳转...</span>
             <span v-if="emailSent === true" class="email-badge email-badge--ok">
-              📧 邮件已发送至 {{ form.notifyEmail }}
+              邮件已发送至 {{ form.notifyEmail }}
             </span>
             <span v-else-if="emailSent === false" class="email-badge email-badge--err">
-              ⚠️ 邮件发送失败：{{ emailError }}
+              邮件发送失败：{{ emailError }}
             </span>
           </template>
-          <template v-else-if="taskStatus === 'error'">❌ 处理失败：{{ taskError }}</template>
+          <template v-else-if="taskStatus === 'error'">✕ 处理失败：{{ taskError }}</template>
         </div>
       </form>
     </div>
 
     <!-- ===== 历史摘要 ===== -->
     <div class="history-header">
-      <div class="section-title" style="margin-bottom:0">历史摘要</div>
+      <div class="section-label" style="margin-bottom:0">历史摘要</div>
       <input
         v-model="filterText"
         type="text"
         class="filter-input"
-        placeholder="按名称筛选..."
+        placeholder="搜索..."
       />
     </div>
 
-    <div v-if="loading" class="loading">加载中...</div>
+    <div v-if="loading" class="loading">
+      <div class="loading-spinner"></div>
+    </div>
     <div v-else-if="loadError" class="error-box">{{ loadError }}</div>
     <div v-else-if="filteredSummaries.length === 0" class="empty">
       <p>{{ filterText ? '没有匹配的摘要' : '暂无摘要记录，在上方输入 URL 立即创建' }}</p>
@@ -111,10 +115,11 @@
 
     <div v-else class="grid">
       <router-link
-        v-for="s in filteredSummaries"
+        v-for="(s, i) in filteredSummaries"
         :key="s.id"
         :to="`/summary/${s.id}`"
         class="card"
+        :style="{ '--i': i }"
       >
         <div class="card-cover">
           <img
@@ -124,10 +129,14 @@
             class="card-img"
             @error="onImgError"
           />
-          <div v-else class="card-placeholder"><span>📄</span></div>
+          <div v-else class="card-placeholder">
+            <span class="placeholder-initial">{{ s.author?.[0] || 'B' }}</span>
+          </div>
+          <div class="card-overlay">
+            <span class="card-author">{{ s.author }}</span>
+          </div>
         </div>
         <div class="card-body">
-          <div class="card-author">{{ s.author }}</div>
           <div class="card-time">{{ s.time || s.fetched_at?.slice(0, 10) }}</div>
           <div class="card-id">{{ s.id }}</div>
         </div>
@@ -176,7 +185,7 @@ onMounted(loadSummaries)
 
 function onImgError(e) {
   e.target.style.display = 'none'
-  e.target.parentElement.innerHTML = '<div class="card-placeholder"><span>📄</span></div>'
+  e.target.parentElement.innerHTML = '<div class="card-placeholder"><span class="placeholder-initial">B</span></div>'
 }
 
 // ---- 新建摘要 ----
@@ -195,7 +204,7 @@ const submitting = ref(false)
 const errorMsg = ref('')
 const taskStatus = ref('')
 const taskError = ref('')
-const emailSent = ref(null)   // null=未触发, true=已发送, false=发送失败
+const emailSent = ref(null)
 const emailError = ref('')
 let pollTimer = null
 
@@ -255,74 +264,107 @@ function startPolling(taskId) {
 </script>
 
 <style scoped>
-.section-title {
-  font-size: 18px;
+/* ---- Section label ---- */
+.section-label {
+  font-family: 'Playfair Display', serif;
+  font-size: 20px;
   font-weight: 700;
-  margin-bottom: 14px;
-  color: #222;
+  color: var(--text);
+  margin-bottom: 16px;
+  letter-spacing: 0.01em;
 }
 
-/* ---- 新建表单 ---- */
+/* ---- New summary card ---- */
 .new-card {
-  background: #fff;
-  border-radius: 12px;
-  padding: 20px 24px;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
-  margin-bottom: 32px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 44px;
+  overflow: hidden;
 }
+
+.new-card-accent {
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent) 0%, transparent 70%);
+}
+
+.form { padding: 22px 24px; }
 
 .form-row {
   display: flex;
   gap: 10px;
   align-items: center;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
 .form-input {
   flex: 1;
-  padding: 10px 12px;
-  border: 1px solid #ddd;
+  padding: 10px 14px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
   border-radius: 8px;
+  color: var(--text);
   font-size: 14px;
+  font-family: inherit;
   outline: none;
-  transition: border-color 0.15s;
   width: 100%;
   box-sizing: border-box;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
-.form-input:focus { border-color: #00a1d6; }
-.form-input:disabled { background: #f9f9f9; color: #999; }
+.form-input::placeholder { color: var(--text-muted); }
+.form-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.form-input:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .btn-primary {
-  background: #00a1d6;
-  color: #fff;
+  background: linear-gradient(135deg, #FB7299, #C94060);
+  color: white;
   border: none;
   padding: 10px 22px;
   border-radius: 8px;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
+  font-family: 'Syne', sans-serif;
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.15s;
+  letter-spacing: 0.03em;
+  transition: opacity 0.2s, transform 0.15s, box-shadow 0.2s;
   flex-shrink: 0;
+  box-shadow: 0 2px 12px rgba(251,114,153,0.3);
 }
-.btn-primary:hover:not(:disabled) { background: #0090c0; }
-.btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+.btn-primary:hover:not(:disabled) {
+  opacity: 0.9;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px rgba(251,114,153,0.42);
+}
+.btn-primary:active:not(:disabled) { transform: translateY(0); }
+.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
 
+/* Advanced toggle */
 .advanced-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 13px;
-  color: #00a1d6;
+  color: var(--text-muted);
   cursor: pointer;
   user-select: none;
   margin-bottom: 12px;
+  padding: 4px 0;
+  transition: color 0.15s;
 }
-.advanced-toggle .hint { color: #999; font-size: 12px; margin-left: 8px; }
+.advanced-toggle:hover { color: var(--text); }
+.toggle-arrow { color: var(--accent); font-size: 11px; }
+.hint { color: var(--text-faint); font-size: 12px; margin-left: 4px; }
 
 .advanced-fields {
-  background: #fafafa;
-  border: 1px solid #f0f0f0;
-  border-radius: 8px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
   padding: 16px;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
 .adv-row {
   display: grid;
@@ -334,20 +376,31 @@ function startPolling(taskId) {
 .form-group--inline { display: flex; align-items: center; gap: 8px; }
 .form-label {
   display: block;
-  font-size: 13px;
-  font-weight: 500;
-  margin-bottom: 5px;
-  color: #555;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+  color: var(--text-muted);
 }
+.form-label--check {
+  margin-bottom: 0;
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 13px;
+}
+.form-check { accent-color: var(--accent); }
 
+/* Error / status boxes */
 .error-box {
-  background: #fff3f3;
-  border: 1px solid #ffcdd2;
-  color: #c62828;
+  background: var(--error-bg);
+  border: 1px solid rgba(255,82,82,0.15);
+  color: #FF8A8A;
   padding: 10px 14px;
   border-radius: 8px;
-  font-size: 14px;
-  margin-top: 10px;
+  font-size: 13px;
+  margin-top: 12px;
 }
 
 .status-box {
@@ -356,142 +409,225 @@ function startPolling(taskId) {
   gap: 10px;
   padding: 10px 14px;
   border-radius: 8px;
-  font-size: 14px;
-  margin-top: 10px;
+  font-size: 13px;
+  margin-top: 12px;
+  flex-wrap: wrap;
 }
-.status-box--pending, .status-box--running { background: #e3f2fd; color: #1565c0; }
-.status-box--done { background: #e8f5e9; color: #2e7d32; }
-.status-box--error { background: #fff3f3; color: #c62828; }
+.status-box--pending,
+.status-box--running {
+  background: var(--info-bg);
+  border: 1px solid rgba(96,165,250,0.15);
+  color: #7FB8FF;
+}
+.status-box--done {
+  background: var(--success-bg);
+  border: 1px solid rgba(61,201,143,0.15);
+  color: #5EDAA8;
+}
+.status-box--error {
+  background: var(--error-bg);
+  border: 1px solid rgba(255,82,82,0.15);
+  color: #FF8A8A;
+}
 
 .spinner {
   display: inline-block;
-  width: 14px;
-  height: 14px;
-  border: 2px solid #90caf9;
-  border-top-color: #1565c0;
+  width: 13px;
+  height: 13px;
+  border: 2px solid rgba(127,184,255,0.2);
+  border-top-color: #7FB8FF;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
   flex-shrink: 0;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ---- 历史摘要 ---- */
-.history-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
-  gap: 16px;
-}
-
-.filter-input {
-  padding: 8px 12px;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  font-size: 13px;
-  outline: none;
-  width: 220px;
-  transition: border-color 0.15s;
-}
-.filter-input:focus { border-color: #00a1d6; }
-
-.loading, .empty {
-  text-align: center;
-  padding: 60px 0;
-  color: #888;
-  font-size: 15px;
-}
-
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 20px;
-}
-
-.card {
-  background: #fff;
-  border-radius: 12px;
-  overflow: hidden;
-  text-decoration: none;
-  color: inherit;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
-  transition: transform 0.15s, box-shadow 0.15s;
-  display: block;
-}
-.card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
-}
-
-.card-cover {
-  width: 100%;
-  aspect-ratio: 16/9;
-  background: #f0f0f0;
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.card-img { width: 100%; height: 100%; object-fit: cover; }
-.card-placeholder {
-  font-size: 40px;
-  color: #ccc;
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.card-body { padding: 12px 16px; }
-.card-author {
-  font-weight: 600;
-  font-size: 15px;
-  margin-bottom: 4px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.card-time { font-size: 12px; color: #999; margin-bottom: 4px; }
-.card-id {
-  font-size: 11px;
-  color: #bbb;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* ---- 邮件通知 ---- */
+/* Email notification */
 .email-notify-row {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-top: 10px;
+  margin-top: 12px;
   flex-wrap: wrap;
 }
-
 .email-notify-check {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  color: #555;
+  color: var(--text-muted);
   cursor: pointer;
   white-space: nowrap;
 }
-
 .email-notify-input {
   flex: 1;
   min-width: 180px;
   max-width: 300px;
 }
-
 .email-badge {
-  font-size: 13px;
+  font-size: 12px;
   padding: 3px 10px;
   border-radius: 12px;
-  white-space: nowrap;
 }
-.email-badge--ok { background: #e8f5e9; color: #2e7d32; }
-.email-badge--err { background: #fff3e0; color: #e65100; }
+.email-badge--ok {
+  background: var(--success-bg);
+  color: #5EDAA8;
+  border: 1px solid rgba(61,201,143,0.15);
+}
+.email-badge--err {
+  background: rgba(255,147,51,0.08);
+  color: #FFB870;
+  border: 1px solid rgba(255,147,51,0.15);
+}
+
+/* ---- History section ---- */
+.history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  gap: 16px;
+}
+
+.filter-input {
+  padding: 8px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  width: 200px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.filter-input::placeholder { color: var(--text-muted); }
+.filter-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  padding: 80px 0;
+}
+.loading-spinner {
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.empty {
+  text-align: center;
+  padding: 80px 0;
+  color: var(--text-faint);
+  font-size: 14px;
+}
+
+/* ---- Card grid ---- */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 18px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  text-decoration: none;
+  color: inherit;
+  display: block;
+  transition: transform 0.22s ease, border-color 0.22s, box-shadow 0.22s;
+  animation: fadeInUp 0.45s ease both;
+  animation-delay: calc(var(--i, 0) * 45ms);
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(18px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.card:hover {
+  transform: translateY(-5px);
+  border-color: var(--border-hover);
+  box-shadow:
+    0 16px 40px rgba(0,0,0,0.4),
+    0 0 0 1px rgba(251,114,153,0.12);
+}
+
+/* Card cover image */
+.card-cover {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: var(--surface2);
+  overflow: hidden;
+}
+
+.card-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.38s ease;
+}
+.card:hover .card-img { transform: scale(1.05); }
+
+.card-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--surface2) 0%, var(--surface3) 100%);
+}
+.placeholder-initial {
+  font-family: 'Playfair Display', serif;
+  font-size: 44px;
+  font-weight: 700;
+  color: var(--text-faint);
+  line-height: 1;
+}
+
+/* Gradient overlay with author name */
+.card-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 30px 14px 12px;
+  background: linear-gradient(to top, rgba(0,0,0,0.82) 0%, transparent 100%);
+}
+.card-author {
+  display: block;
+  color: rgba(255,255,255,0.92);
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 6px rgba(0,0,0,0.5);
+}
+
+/* Card metadata */
+.card-body { padding: 11px 14px 14px; }
+.card-time {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 3px;
+}
+.card-id {
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
 </style>
