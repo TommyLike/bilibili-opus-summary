@@ -142,7 +142,16 @@ def fetch_post(post_id, cookies):
 
 
 def parse_post(item):
-    """解析动态 item，返回结构化数据"""
+    """
+    解析动态 item，返回结构化数据。
+
+    支持的动态类型：
+      DYNAMIC_TYPE_WORD    — 纯文字动态
+      DYNAMIC_TYPE_DRAW    — 图文动态（图片列表）
+      DYNAMIC_TYPE_AV      — 视频动态（含封面与简介）
+      DYNAMIC_TYPE_ARTICLE — 专栏文章（含封面与摘要）
+      DYNAMIC_TYPE_FORWARD — 转发动态（取转发评论文字）
+    """
     modules = item.get("modules", {})
     module_author = modules.get("module_author", {})
     module_dynamic = modules.get("module_dynamic", {})
@@ -153,11 +162,37 @@ def parse_post(item):
     desc = module_dynamic.get("desc") or {}
     text = desc.get("text", "").strip()
 
+    dynamic_type = item.get("type", "")
+    major = module_dynamic.get("major") or {}
     images = []
-    if item.get("type") == "DYNAMIC_TYPE_DRAW":
-        major = module_dynamic.get("major") or {}
+
+    if dynamic_type == "DYNAMIC_TYPE_DRAW":
         draw = major.get("draw") or {}
         images = [img["src"] for img in draw.get("items", []) if img.get("src")]
+
+    elif dynamic_type == "DYNAMIC_TYPE_AV":
+        # 视频动态：封面 + 视频标题/简介补充到 text
+        archive = major.get("archive") or {}
+        cover_url = archive.get("cover", "")
+        if cover_url:
+            images = [cover_url]
+        video_title = archive.get("title", "")
+        video_desc = archive.get("desc", "")
+        extra = "\n\n".join(p for p in [video_title, video_desc] if p)
+        if extra:
+            text = f"{text}\n\n{extra}".strip() if text else extra
+
+    elif dynamic_type == "DYNAMIC_TYPE_ARTICLE":
+        # 专栏文章：首张封面 + 文章标题/摘要补充到 text
+        article = major.get("article") or {}
+        covers = article.get("covers") or []
+        if covers:
+            images = [covers[0]]
+        article_title = article.get("title", "")
+        article_desc = article.get("desc", "")
+        extra = "\n\n".join(p for p in [article_title, article_desc] if p)
+        if extra:
+            text = f"{text}\n\n{extra}".strip() if text else extra
 
     return {
         "author": author,
@@ -167,6 +202,7 @@ def parse_post(item):
         "cover_image_local": "",      # 相对路径，如 "images/1.jpg"，空表示无封面图
         "image_descriptions": [],     # 与 images 等长；封面图对应位置为空字符串
         "combined_text": "",
+        "dynamic_type": dynamic_type,
     }
 
 
@@ -176,10 +212,10 @@ def parse_post(item):
 
 def download_image(url, save_path):
     """
-    下载图片并保存到本地
+    下载图片并保存到本地（统一转为 RGB JPEG）
 
     Returns:
-        PIL.Image 对象，失败返回 None
+        PIL.Image 对象（RGB 模式），失败返回 None
     """
     try:
         resp = requests.get(
@@ -189,9 +225,11 @@ def download_image(url, save_path):
         )
         resp.raise_for_status()
         img = Image.open(io.BytesIO(resp.content))
-        # 保存原始文件
+        # P（调色板）、RGBA、PA 等模式无法直接保存为 JPEG，统一转为 RGB
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
         save_path.parent.mkdir(parents=True, exist_ok=True)
-        img.save(str(save_path))
+        img.save(str(save_path), format="JPEG")
         return img
     except Exception as e:
         print(f"  图片下载失败 ({url}): {e}")
@@ -199,14 +237,13 @@ def download_image(url, save_path):
 
 
 def _img_to_part(img):
-    """将 PIL.Image 转为 Gemini Part"""
+    """将 PIL.Image 转为 Gemini Part（统一以 JPEG 发送）"""
     buf = io.BytesIO()
-    fmt = img.format or "JPEG"
-    img.save(buf, format=fmt)
-    mime = f"image/{fmt.lower()}"
-    if mime not in ("image/jpeg", "image/png", "image/gif", "image/webp"):
-        mime = "image/jpeg"
-    return types.Part.from_bytes(data=buf.getvalue(), mime_type=mime)
+    # download_image 已保证返回 RGB/L，这里做一次兜底转换
+    if img.mode not in ("RGB", "L"):
+        img = img.convert("RGB")
+    img.save(buf, format="JPEG")
+    return types.Part.from_bytes(data=buf.getvalue(), mime_type="image/jpeg")
 
 
 def classify_first_image(client, model, img):
@@ -322,6 +359,7 @@ def save_raw(post, source_url, output_dir):
         "cover_image_local": post.get("cover_image_local", ""),
         "image_descriptions": post["image_descriptions"],
         "combined_text": post["combined_text"],
+        "dynamic_type": post.get("dynamic_type", ""),
     }
     raw_path = output_dir / "raw.json"
     raw_path.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -480,7 +518,10 @@ def run_summary(url: str, config: dict, force: bool = False) -> dict:
     """
     post_id = extract_post_id(url)
     if not post_id:
-        raise ValueError(f"无法从 URL 中提取动态 ID: {url}，支持格式：https://www.bilibili.com/opus/<id>")
+        raise ValueError(
+            f"无法从 URL 中提取动态 ID: {url}，"
+            "支持格式：https://www.bilibili.com/opus/<id> 或 https://t.bilibili.com/<id>"
+        )
 
     gemini_client = genai.Client(api_key=config["gemini_api_key"])
     gemini_model = "gemini-2.5-flash"

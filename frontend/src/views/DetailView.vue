@@ -9,15 +9,6 @@
     <div v-else-if="error" class="error-box">{{ error }}</div>
 
     <div v-else class="content">
-      <!-- 封面图 -->
-      <div v-if="summary.cover_image_local" class="cover-wrap">
-        <img
-          :src="`/output/${summary.id}/${summary.cover_image_local}`"
-          :alt="summary.author"
-          class="cover-img"
-        />
-      </div>
-
       <!-- 元信息 -->
       <div class="meta">
         <span class="meta-author">{{ summary.author }}</span>
@@ -99,17 +90,6 @@ const renderedMd = computed(() => {
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 1px 4px rgba(0,0,0,0.08);
-}
-
-.cover-wrap {
-  width: 100%;
-  max-height: 400px;
-  overflow: hidden;
-}
-.cover-img {
-  width: 100%;
-  object-fit: cover;
-  display: block;
 }
 
 .meta {
